@@ -1,0 +1,127 @@
+import { useState, useEffect, useRef } from "react";
+
+interface UseWeatherAgentParams {
+  messageHistory: { sender: string; text: string }[];
+  threadId: string;
+  apiUrl: string;
+}
+
+const useWeatherAgent = ({ messageHistory, threadId, apiUrl }: UseWeatherAgentParams) => {
+  const [responseChunks, setResponseChunks] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Parse the streaming response format
+  const parseStreamChunk = (chunk: string) => {
+    try {
+      // The response comes in lines, each potentially containing multiple parts
+      const lines = chunk.trim().split('\n');
+      
+      let extractedText = '';
+      
+      for (const line of lines) {
+        // Extract content parts that start with "0:" (actual message content)
+        const contentParts = line.match(/0:"([^"]*)"/g);
+        if (contentParts) {
+          // For each content part, extract the text between quotes and add it to our result
+          contentParts.forEach(part => {
+            const content = part.substring(3, part.length - 1); // Remove '0:"' prefix and '"' suffix
+            extractedText += content;
+          });
+        }
+      }
+      
+      return extractedText;
+    } catch (err) {
+      console.error('Error parsing stream chunk:', err);
+      return chunk; // Return the original chunk if parsing fails
+    }
+  };
+
+  const sendRequest = async () => {
+    setLoading(true);
+    setError(null);
+    setResponseChunks([]);
+
+    abortControllerRef.current = new AbortController();
+
+    try {
+      // Format messages according to the API specification
+      const formattedMessages = messageHistory
+        .filter(msg => msg.sender !== "system")
+        .map(msg => ({
+          role: msg.sender === "user" ? "user" : "assistant",
+          content: msg.text
+        }));
+
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          'Accept': '*/*',
+          'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,fr;q=0.7',
+          'Connection': 'keep-alive',
+          'Content-Type': 'application/json',
+          'x-mastra-dev-playground': 'true'
+        },
+        body: JSON.stringify({
+          messages: formattedMessages,
+          runId: "weatherAgent",
+          maxRetries: 2,
+          maxSteps: 5,
+          temperature: 0.5,
+          topP: 1,
+          runtimeContext: {},
+          threadId,
+        }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.body) {
+        throw new Error("No response body");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let fullMessage = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        const parsedChunk = parseStreamChunk(chunk);
+        
+        if (parsedChunk.trim()) {
+          fullMessage += parsedChunk;
+          // Update with the full message so far to show progressive updates
+          setResponseChunks([fullMessage]);
+        }
+      }
+    } catch (err: any) {
+      if (err.name === "AbortError") {
+        console.log("Request aborted");
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const abortRequest = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      abortRequest();
+    };
+  }, []);
+
+  return { responseChunks, loading, error, sendRequest, abortRequest };
+};
+
+export default useWeatherAgent;

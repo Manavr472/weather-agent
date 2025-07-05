@@ -1,0 +1,40 @@
+/* Markdown styling for chat messages */
+
+/* Make sure all markdown content inside agent messages inherits text color */
+.agent-message * {
+  color: inherit;
+}
+
+/* Spacing for markdown elements */
+.agent-message p {
+  margin: 0.5rem 0;
+}
+
+.agent-message p:first-child {
+  margin-top: 0;
+}
+
+.agent-message p:last-child {
+  margin-bottom: 0;
+}
+
+/* Bold text */
+.agent-message strong {
+  font-weight: 700;
+}
+
+/* List styling */
+.agent-message ul, .agent-message ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.agent-message li {
+  margin: 0.25rem 0;
+}
+
+/* Links */
+.agent-message a {
+  text-decoration: underline;
+  color: inherit;
+}
